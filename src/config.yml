@@ -1,0 +1,13 @@
+areas:
+groups:
+  Settler:
+    limit: 2
+  Elite:
+    limit: 4
+  Supporter:
+    limit: 6
+  Scout:
+    limit: 8
+  Ranger:
+    limit: 10
+players:

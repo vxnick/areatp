@@ -1,0 +1,35 @@
+name: AreaTP
+main: com.vxnick.areatp.AreaTP
+version: 0.1.0
+description: Create area teleports.
+author: vxnick
+website: http://github.com/vxnick/areatp
+depend: [Vault]
+
+commands:
+  atp:
+    description: Area Teleport
+    usage: /<command> help for a list of commands
+permissions:
+  areatp.use:
+    description: Use area teleports
+    default: op
+  areatp.set:
+    description: Set area teleports
+    default: op
+  areatp.unlimited:
+    description: Unlimited area teleports
+    default: op
+  areatp.admin.reload:
+    description: Reload configuration
+    default: op
+  areatp.admin.remove:
+    description: Remove player area teleports
+    default: op
+  areatp.admin.*:
+    description: Administrative commands
+    default: op
+    children:
+      areatp.admin.reload: true
+      areatp.admin.remove: true
+      areatp.unlimited: true
