@@ -1,4 +1,4 @@
-areas:
+page_results: 10
 groups:
   Settler:
     limit: 2
@@ -11,3 +11,4 @@ groups:
   Ranger:
     limit: 10
 players:
+areas:

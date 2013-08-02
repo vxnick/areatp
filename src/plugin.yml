@@ -1,6 +1,6 @@
 name: AreaTP
 main: com.vxnick.areatp.AreaTP
-version: 0.1.0
+version: 0.2.0
 description: Create area teleports.
 author: vxnick
 website: http://github.com/vxnick/areatp

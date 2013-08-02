@@ -3,6 +3,9 @@ package com.vxnick.areatp;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map.Entry;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
 import net.milkbowl.vault.permission.Permission;
 
@@ -29,6 +32,27 @@ public final class AreaTP extends JavaPlugin {
 	@Override
 	public void onDisable() {
 		
+	}
+	
+	public void paginate(CommandSender sender, SortedMap<Integer, String> map, int page, int pageLength) {
+		int maxPages = (((map.size() % pageLength) == 0) ? map.size() / pageLength : (map.size() / pageLength) + 1);
+		
+		if (page > maxPages) {
+			page = maxPages;
+		}
+		
+	    sender.sendMessage(ChatColor.YELLOW + "Page " + String.valueOf(page) + " of " + maxPages + ChatColor.RESET);
+	    
+	    int i = 0, k = 0;
+	    page--;
+	    
+	    for (final Entry<Integer, String> e : map.entrySet()) {
+	        k++;
+	        if ((((page * pageLength) + i + 1) == k) && (k != ((page * pageLength) + pageLength + 1))) {
+	            i++;
+	            sender.sendMessage(e.getValue());
+	        }
+	    }
 	}
 	
 	public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
@@ -172,7 +196,7 @@ public final class AreaTP extends JavaPlugin {
 			} else if (command.equals("help")) {
 				sender.sendMessage(ChatColor.GOLD + "Area Teleport Commands");
 				sender.sendMessage("/atp -- Show area TPs that you have created");
-				sender.sendMessage("/atp list -- Show a list of all area TPs");
+				sender.sendMessage("/atp list [page] -- Show a list of all area TPs");
 				sender.sendMessage("/atp set <name> -- Create or update an area TP");
 				sender.sendMessage("/atp remove <name> -- Remove one of your area TPs");
 				sender.sendMessage("/atp <name> -- Go to an area teleport");
@@ -182,11 +206,27 @@ public final class AreaTP extends JavaPlugin {
 				if (areas != null) {
 					List<String> areaList = new ArrayList<String>(areas.getKeys(false));
 					Collections.sort(areaList);
+					SortedMap<Integer, String> map = new TreeMap<Integer, String>();
+					int i = 1;
 					
 					for (String area : areaList) {
 						String areaOwner = getConfig().getString(String.format("areas.%s.owner", area));
+						map.put(i, ChatColor.GOLD + area + ChatColor.RESET + " (owner: " + areaOwner + ")");
+						i++;
+					}
+					
+					try {
+						int pageNumber;
+						if (args.length == 1) {
+							pageNumber = 1;
+						} else {
+							pageNumber = Integer.valueOf(args[1]);
+						}
 						
-						sender.sendMessage(ChatColor.GOLD + area + ChatColor.RESET + " (owner: " + areaOwner + ")");
+						sender.sendMessage(ChatColor.GOLD + "Area TP List" + ChatColor.RESET);
+						paginate(sender, map, pageNumber, getConfig().getInt("page_results", 10));
+					} catch (NumberFormatException e) {
+						sender.sendMessage(ChatColor.RED + "Please specify a page number");
 					}
 				} else {
 					sender.sendMessage(ChatColor.YELLOW + "Nothing to list");
