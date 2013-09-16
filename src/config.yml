@@ -1,4 +1,5 @@
 page_results: 10
+tp_delay: 0
 groups:
   Settler:
     limit: 2

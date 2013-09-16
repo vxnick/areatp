@@ -17,6 +17,9 @@ permissions:
   areatp.set:
     description: Set area teleports
     default: op
+  areatp.bypass:
+    description: Bypass the teleport delay
+    default: op
   areatp.unlimited:
     description: Unlimited area teleports
     default: op
@@ -32,4 +35,5 @@ permissions:
     children:
       areatp.admin.reload: true
       areatp.admin.remove: true
+      areatp.bypass: true
       areatp.unlimited: true

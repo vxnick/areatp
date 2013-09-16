@@ -34,6 +34,33 @@ public final class AreaTP extends JavaPlugin {
 		
 	}
 	
+	private void teleportPlayer(String playerName, String areaName) {
+		Player player = getServer().getPlayer(playerName);
+		
+		if (player == null) {
+			return;
+		}
+		
+		// Does this area exist?
+		if (getConfig().get(String.format("areas.%s.owner", areaName), null) == null) {
+			player.sendMessage(ChatColor.RED + "The area teleport you specified does not exist");
+			return;
+		}
+		
+		String areaOwner = getConfig().getString(String.format("areas.%s.owner", areaName));
+		String areaWorld = getConfig().getString(String.format("areas.%s.world", areaName));
+		double areaX = getConfig().getDouble(String.format("areas.%s.x", areaName));
+		double areaY = getConfig().getDouble(String.format("areas.%s.y", areaName));
+		double areaZ = getConfig().getDouble(String.format("areas.%s.z", areaName));
+		float areaPitch = (float) getConfig().getDouble(String.format("areas.%s.pitch", areaName));
+		Float areaYaw = (float) getConfig().getDouble(String.format("areas.%s.yaw", areaName));
+		
+		Location newLocation = new Location(getServer().getWorld(areaWorld), areaX, areaY, areaZ, areaYaw, areaPitch);
+
+		player.sendMessage(String.format(ChatColor.GOLD + "Teleporting you to %s (owner: %s)", areaName, areaOwner));
+		player.teleport(newLocation);
+	}
+	
 	public void paginate(CommandSender sender, SortedMap<Integer, String> map, int page, int pageLength) {
 		int maxPages = (((map.size() % pageLength) == 0) ? map.size() / pageLength : (map.size() / pageLength) + 1);
 		
@@ -236,7 +263,7 @@ public final class AreaTP extends JavaPlugin {
 				if (args.length != 1) {
 					sender.sendMessage(ChatColor.RED + "Please specify an area TP to teleport to");
 				} else {
-					String areaName = args[0].toLowerCase();
+					final String areaName = args[0].toLowerCase();
 					
 					// Does this exist?
 					if (getConfig().get(String.format("areas.%s.owner", areaName), null) == null) {
@@ -244,20 +271,21 @@ public final class AreaTP extends JavaPlugin {
 						return true;
 					}
 					
-					Player player = (Player) sender;
+					final Player player = (Player) sender;
 					
-					String areaOwner = getConfig().getString(String.format("areas.%s.owner", areaName));
-					String areaWorld = getConfig().getString(String.format("areas.%s.world", areaName));
-					double areaX = getConfig().getDouble(String.format("areas.%s.x", areaName));
-					double areaY = getConfig().getDouble(String.format("areas.%s.y", areaName));
-					double areaZ = getConfig().getDouble(String.format("areas.%s.z", areaName));
-					float areaPitch = (float) getConfig().getDouble(String.format("areas.%s.pitch", areaName));
-					Float areaYaw = (float) getConfig().getDouble(String.format("areas.%s.yaw", areaName));
-	
-					sender.sendMessage(String.format(ChatColor.GOLD + "Teleporting you to %s (owner: %s)", areaName, areaOwner));
-	
-					Location newLocation = new Location(getServer().getWorld(areaWorld), areaX, areaY, areaZ, areaYaw, areaPitch);
-					player.teleport(newLocation);
+					if (getConfig().getInt("tp_delay", 0) > 0 && !perms.has((String) null, player.getName(), "areatp.bypass")) {
+						int tpDelay = getConfig().getInt("tp_delay");
+						
+						player.sendMessage(ChatColor.GOLD + String.format("Teleporting you in %d seconds...", tpDelay));
+						
+						getServer().getScheduler().scheduleSyncDelayedTask(this, new Runnable() {
+							public void run() {
+								teleportPlayer(player.getName(), areaName);
+							}
+						}, tpDelay * 20L);
+					} else {
+						teleportPlayer(player.getName(), areaName);
+					}
 				}
 			}
 		}
