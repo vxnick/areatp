@@ -19,15 +19,15 @@ import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class AreaTP extends JavaPlugin {
-    public static Permission perms = null;
+	public static Permission perms = null;
 
 	@Override
 	public void onEnable() {
 		RegisteredServiceProvider<Permission> rsp = getServer().getServicesManager().getRegistration(Permission.class);
-        perms = rsp.getProvider();
-        
-        saveDefaultConfig();
-    }
+		perms = rsp.getProvider();
+		
+		saveDefaultConfig();
+	}
 	
 	@Override
 	public void onDisable() {
@@ -41,18 +41,18 @@ public final class AreaTP extends JavaPlugin {
 			page = maxPages;
 		}
 		
-	    sender.sendMessage(ChatColor.YELLOW + "Page " + String.valueOf(page) + " of " + maxPages + ChatColor.RESET);
-	    
-	    int i = 0, k = 0;
-	    page--;
-	    
-	    for (final Entry<Integer, String> e : map.entrySet()) {
-	        k++;
-	        if ((((page * pageLength) + i + 1) == k) && (k != ((page * pageLength) + pageLength + 1))) {
-	            i++;
-	            sender.sendMessage(e.getValue());
-	        }
-	    }
+		sender.sendMessage(ChatColor.YELLOW + "Page " + String.valueOf(page) + " of " + maxPages + ChatColor.RESET);
+		
+		int i = 0, k = 0;
+		page--;
+		
+		for (final Entry<Integer, String> e : map.entrySet()) {
+			k++;
+			if ((((page * pageLength) + i + 1) == k) && (k != ((page * pageLength) + pageLength + 1))) {
+				i++;
+				sender.sendMessage(e.getValue());
+			}
+		}
 	}
 	
 	public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
