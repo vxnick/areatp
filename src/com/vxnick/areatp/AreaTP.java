@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.logging.Level;
 
 import net.milkbowl.vault.permission.Permission;
 
@@ -27,6 +28,43 @@ public final class AreaTP extends JavaPlugin {
 		perms = rsp.getProvider();
 		
 		saveDefaultConfig();
+		
+		// Purge old area TPs
+		getServer().getScheduler().scheduleSyncDelayedTask(this, new Runnable() {
+			public void run() {
+				int purge = getConfig().getInt("purge");
+				
+				if (purge > 0) {
+					ConfigurationSection areas = getConfig().getConfigurationSection("areas");
+					
+					if (areas != null) {
+						List<String> areaList = new ArrayList<String>(areas.getKeys(false));
+						
+						for (String area : areaList) {
+							long lastVisit = getConfig().getLong(String.format("areas.%s.last_visit", area));
+							
+							if (lastVisit > 0 && (getUnixTime() - lastVisit >= (purge * 86400))) {
+								String owner = getConfig().getString(String.format("areas.%s.owner", area));
+								
+								getConfig().set(String.format("areas.%s", area), null);
+								
+								List<String> playerAreas = getConfig().getStringList(String.format("players.%s.areas", owner));
+								
+								if (playerAreas.contains(area)) {
+									playerAreas.remove(area);
+									getConfig().set(String.format("players.%s.areas", owner), playerAreas);
+									
+									getServer().getLogger().log(Level.INFO, String.format("Purged '%s' (owner: %s; last visit: %s ago)", 
+											area, owner, formatDuration(getUnixTime() - lastVisit)));
+								}
+								
+								saveConfig();
+							}
+						}
+					}
+				}
+			}
+		}, 30 * 20L);
 	}
 	
 	@Override
@@ -46,6 +84,10 @@ public final class AreaTP extends JavaPlugin {
 			player.sendMessage(ChatColor.RED + "The area teleport you specified does not exist");
 			return;
 		}
+		
+		// Set visit timestamp
+		getConfig().set(String.format("areas.%s.last_visit",  areaName), getUnixTime());
+		saveConfig();
 		
 		String areaOwner = getConfig().getString(String.format("areas.%s.owner", areaName));
 		String areaWorld = getConfig().getString(String.format("areas.%s.world", areaName));
@@ -82,6 +124,22 @@ public final class AreaTP extends JavaPlugin {
 		}
 	}
 	
+	private long getUnixTime() {
+		return (System.currentTimeMillis() / 1000L);
+	}
+	
+	private String formatDuration(long seconds) {
+		if (seconds < 60) {
+			return String.format("%d second%s", seconds, (seconds == 1 ? "" : "s"));
+		} else if (seconds < 3600) {
+			return String.format("%d minute%s", (seconds / 60), ((seconds / 60) == 1 ? "" : "s"));
+		} else if (seconds < 86400) {
+			return String.format("%d hour%s", (seconds / 3600), ((seconds / 3600) == 1 ? "" : "s"));
+		} else {
+			return String.format("%d day%s", (seconds / 86400), ((seconds / 86400) == 1 ? "" : "s"));
+		}
+	}
+	
 	public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
 		if (cmd.getName().equalsIgnoreCase("atp")) {
 			if (!perms.has(sender, "areatp.use")) {
@@ -111,13 +169,18 @@ public final class AreaTP extends JavaPlugin {
 				sender.sendMessage(ChatColor.YELLOW + String.format("%d/%s area teleports", usedAreas, totalAreas));
 				
 				if (usedAreas > 0) {
-					StringBuilder areaList = new StringBuilder();
-					
 					for (String areaName : playerAreas) {
-						areaList.append(areaName + ", ");
+						long lastVisit = getConfig().getLong(String.format("areas.%s.last_visit", areaName));
+						String lastVisitFormatted;
+						
+						if (lastVisit == 0) {
+							lastVisitFormatted = "never";
+						} else {
+							lastVisitFormatted = formatDuration(getUnixTime() - lastVisit) + " ago";
+						}
+						
+						sender.sendMessage(areaName + " (last visited: " + lastVisitFormatted + ")");
 					}
-					
-					sender.sendMessage(areaList.toString().replaceAll(", $", ""));
 				} else {
 					sender.sendMessage(ChatColor.YELLOW + "No area teleports belong to you");
 				}

@@ -1,5 +1,6 @@
 page_results: 10
 tp_delay: 0
+purge: 30
 groups:
   Settler:
     limit: 2
