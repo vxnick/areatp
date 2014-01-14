@@ -98,7 +98,10 @@ public final class AreaTP extends JavaPlugin {
 		Float areaYaw = (float) getConfig().getDouble(String.format("areas.%s.yaw", areaName));
 		
 		Location newLocation = new Location(getServer().getWorld(areaWorld), areaX, areaY, areaZ, areaYaw, areaPitch);
-
+		
+		// Load the chunk
+		getServer().getWorld(areaWorld).loadChunk(newLocation.getChunk());
+		
 		player.sendMessage(String.format(ChatColor.GOLD + "Teleporting you to %s (owner: %s)", areaName, areaOwner));
 		player.teleport(newLocation);
 	}
