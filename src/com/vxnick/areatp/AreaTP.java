@@ -1,19 +1,24 @@
 package com.vxnick.areatp;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.logging.Level;
 
 import net.milkbowl.vault.permission.Permission;
 
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
@@ -28,6 +33,90 @@ public final class AreaTP extends JavaPlugin {
 		perms = rsp.getProvider();
 		
 		saveDefaultConfig();
+		
+		// Convert/purge empty players
+		getServer().getLogger().log(Level.INFO, "Purging empty players");
+		
+		ConfigurationSection players = getConfig().getConfigurationSection("players");
+		
+		if (players != null) {
+			List<String> playerList = new ArrayList<String>(players.getKeys(false));
+			
+			for (String player : playerList) {
+				List<String> playerAreas = getConfig().getStringList(String.format("players.%s.areas", player));
+				
+				if (playerAreas.isEmpty()) {
+					getConfig().set(String.format("players.%s", player), null);
+				}
+			}
+			
+			saveConfig();
+		}
+		
+		// Convert players		
+		getServer().getScheduler().runTaskAsynchronously(this, new Runnable() {
+			public void run() {
+				// Update areas
+				ConfigurationSection areas = getConfig().getConfigurationSection("areas");
+				
+				if (areas != null) {
+					List<String> areaList = new ArrayList<String>(areas.getKeys(false));
+					
+					for (String area : areaList) {
+						String owner = getConfig().getString(String.format("areas.%s.owner", area));
+						
+						// Is this already a UUID?
+						try {
+							UUID.fromString(owner);
+							continue;
+						} catch (IllegalArgumentException e) {}
+						
+						try {
+							String ownerUUID = UUIDFetcher.getUUIDOf(owner).toString();
+							
+							// Set owner UUID
+							getConfig().set(String.format("areas.%s.owner", area), ownerUUID);
+						} catch (Exception e) {
+							getLogger().warning(String.format("Could not fetch a UUID for %s", owner));
+						}
+					}
+					
+					saveConfig();
+				}
+				
+				// Update players
+				ConfigurationSection players = getConfig().getConfigurationSection("players");
+				
+				if (players != null) {
+					List<String> playerList = new ArrayList<String>(players.getKeys(false));
+					
+					for (String player : playerList) {
+						// Is this already a UUID?
+						try {
+							UUID.fromString(player);
+							continue;
+						} catch (IllegalArgumentException e) {}
+						
+						try {
+							String playerUUID = UUIDFetcher.getUUIDOf(player).toString();
+							
+							// Get player data
+							ConfigurationSection playerData = getConfig().getConfigurationSection(String.format("players.%s", player)); 
+							
+							// Change player and set player data
+							getConfig().set(String.format("players.%s", playerUUID), playerData);
+							
+							// Delete old player section
+							getConfig().set(String.format("players.%s", player), null);
+						} catch (Exception e) {
+							getLogger().warning(String.format("Could not fetch a UUID for %s", player));
+						}
+					}
+					
+					saveConfig();
+				}
+			}
+		});
 		
 		// Purge old area TPs
 		getServer().getScheduler().scheduleSyncDelayedTask(this, new Runnable() {
@@ -52,15 +141,21 @@ public final class AreaTP extends JavaPlugin {
 								
 								if (playerAreas.contains(area)) {
 									playerAreas.remove(area);
+									
+									// Remove player if they have no areas left
+									if (playerAreas.isEmpty()) {
+										playerAreas = null;
+									}
+									
 									getConfig().set(String.format("players.%s.areas", owner), playerAreas);
 									
 									getServer().getLogger().log(Level.INFO, String.format("Purged '%s' (owner: %s; last visit: %s ago)", 
 											area, owner, formatDuration(getUnixTime() - lastVisit)));
 								}
-								
-								saveConfig();
 							}
 						}
+						
+						saveConfig();
 					}
 				}
 			}
@@ -72,9 +167,37 @@ public final class AreaTP extends JavaPlugin {
 		
 	}
 	
-	private void teleportPlayer(String playerName, String areaName) {
-		Player player = getServer().getPlayer(playerName);
+	private boolean isDangerous(Location location) {
+		// Block blacklist (for safety checks)
+		List<Material> blockBlacklist = Arrays.asList(Material.LAVA, Material.STATIONARY_LAVA, Material.WATER, Material.STATIONARY_WATER,
+				Material.CACTUS, Material.FIRE, Material.STONE_PLATE, Material.WOOD_PLATE, Material.GOLD_PLATE, Material.WEB);
 		
+		// Check a column above/below the destination
+		for (int y = -2; y <= 2; y++) {
+			Block block = location.getBlock().getRelative(0, y, 0);
+			
+			// Check for suffocation
+			if (y == 0 || y == 1) {
+				if (block.getType() != Material.AIR) {
+					return true;
+				}
+			}
+			
+			// Check for falls (block beneath feet being air)
+			if (y == -1 && block.getType() == Material.AIR) {
+				return true;
+			}
+			
+			// Check for blacklisted blocks
+			if (blockBlacklist.contains(block.getType())) {
+				return true;
+			}
+		}
+		
+		return false;
+	}
+	
+	private void teleportPlayer(Player player, String areaName) {		
 		if (player == null) {
 			return;
 		}
@@ -86,10 +209,10 @@ public final class AreaTP extends JavaPlugin {
 		}
 		
 		// Set visit timestamp
-		getConfig().set(String.format("areas.%s.last_visit",  areaName), getUnixTime());
+		getConfig().set(String.format("areas.%s.last_visit", areaName), getUnixTime());
 		saveConfig();
 		
-		String areaOwner = getConfig().getString(String.format("areas.%s.owner", areaName));
+		UUID areaOwner = UUID.fromString(getConfig().getString(String.format("areas.%s.owner", areaName)));
 		String areaWorld = getConfig().getString(String.format("areas.%s.world", areaName));
 		double areaX = getConfig().getDouble(String.format("areas.%s.x", areaName));
 		double areaY = getConfig().getDouble(String.format("areas.%s.y", areaName));
@@ -99,10 +222,16 @@ public final class AreaTP extends JavaPlugin {
 		
 		Location newLocation = new Location(getServer().getWorld(areaWorld), areaX, areaY, areaZ, areaYaw, areaPitch);
 		
+		if (isDangerous(newLocation) && player.getUniqueId() != areaOwner) {
+			player.sendMessage(ChatColor.YELLOW + "This ATP is unsafe");
+			return;
+		}
+		
 		// Load the chunk
 		getServer().getWorld(areaWorld).loadChunk(newLocation.getChunk());
 		
-		player.sendMessage(String.format(ChatColor.GOLD + "Teleporting you to %s (owner: %s)", areaName, areaOwner));
+		player.sendMessage(String.format(ChatColor.GOLD + "Teleporting you to %s (owner: %s)", 
+				areaName, getServer().getOfflinePlayer(areaOwner).getName()));
 		player.teleport(newLocation);
 	}
 	
@@ -146,7 +275,7 @@ public final class AreaTP extends JavaPlugin {
 	public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
 		if (cmd.getName().equalsIgnoreCase("atp")) {
 			if (!perms.has(sender, "areatp.use")) {
-				sender.sendMessage(ChatColor.RED + "Sorry, you don't have access to areaTP");
+				sender.sendMessage(ChatColor.RED + "Sorry, you don't have access to AreaTP");
 				return true;
 			}
 			
@@ -155,8 +284,15 @@ public final class AreaTP extends JavaPlugin {
 			if (args.length > 0) {
 				command = args[0].toLowerCase();
 			} else {
+				if (sender instanceof ConsoleCommandSender) {
+					sender.sendMessage(ChatColor.RED + "This command is not available through the console");
+					return true;
+				}
+				
+				Player player = (Player) sender;
+				
 				// Show owned area teleports
-				List<String> playerAreas = getConfig().getStringList(String.format("players.%s.areas", sender.getName()));
+				List<String> playerAreas = getConfig().getStringList(String.format("players.%s.areas", player.getUniqueId().toString()));
 				Collections.sort(playerAreas);
 				
 				Integer usedAreas = playerAreas.size();
@@ -165,11 +301,11 @@ public final class AreaTP extends JavaPlugin {
 				if (perms.has(sender, "areatp.unlimited")) {
 					totalAreas = "unlimited";
 				} else {
-					totalAreas = String.valueOf(getConfig().getInt(String.format("groups.%s.limit", perms.getPrimaryGroup((String) null, sender.getName())), 0));
+					totalAreas = String.valueOf(getConfig().getInt(String.format("groups.%s.limit", perms.getPrimaryGroup((String) null, player)), 0));
 				}
 				
-				sender.sendMessage(ChatColor.GOLD + "Your Area Teleports");
-				sender.sendMessage(ChatColor.YELLOW + String.format("%d/%s area teleports", usedAreas, totalAreas));
+				player.sendMessage(ChatColor.GOLD + "Your Area Teleports");
+				player.sendMessage(ChatColor.YELLOW + String.format("%d/%s area teleports", usedAreas, totalAreas));
 				
 				if (usedAreas > 0) {
 					for (String areaName : playerAreas) {
@@ -182,10 +318,10 @@ public final class AreaTP extends JavaPlugin {
 							lastVisitFormatted = formatDuration(getUnixTime() - lastVisit) + " ago";
 						}
 						
-						sender.sendMessage(areaName + " (last visited: " + lastVisitFormatted + ")");
+						player.sendMessage(areaName + " (last visited: " + lastVisitFormatted + ")");
 					}
 				} else {
-					sender.sendMessage(ChatColor.YELLOW + "No area teleports belong to you");
+					player.sendMessage(ChatColor.YELLOW + "No area teleports belong to you");
 				}
 				
 				return true;
@@ -196,46 +332,65 @@ public final class AreaTP extends JavaPlugin {
 				reloadConfig();
 				return true;
 			} else if (command.equals("remove")) {
+				if (sender instanceof ConsoleCommandSender) {
+					sender.sendMessage(ChatColor.RED + "This command is not available through the console");
+					return true;
+				}
+				
+				Player player = (Player) sender;
+				
 				if (args.length < 2) {
-					sender.sendMessage(ChatColor.RED + "Please specify an area teleport to remove");
+					player.sendMessage(ChatColor.RED + "Please specify an area teleport to remove");
 					return true;
 				}
 				
 				String areaName = args[1].toLowerCase();
-				
 				String areaOwner = getConfig().getString(String.format("areas.%s.owner", areaName));
 				
 				if (areaOwner == null) {
-					sender.sendMessage(ChatColor.RED + "The area teleport specified does not exist");
+					player.sendMessage(ChatColor.RED + "The area teleport specified does not exist");
 					return true;
 				}
 				
 				// Remove the area teleport
-				if (areaOwner.equals(sender.getName()) || perms.has(sender, "areatp.admin.remove")) {
+				if (areaOwner.equals(player.getUniqueId().toString()) || perms.has(player, "areatp.admin.remove")) {
 					getConfig().set(String.format("areas.%s", areaName), null);
 					
 					List<String> playerAreas = getConfig().getStringList(String.format("players.%s.areas", areaOwner));
 					
 					if (playerAreas.contains(areaName)) {
 						playerAreas.remove(areaName);
-						getConfig().set(String.format("players.%s.areas", areaOwner), playerAreas);
+						
+						// Remove player if they have no more areas
+						if (playerAreas.isEmpty()) {
+							getConfig().set(String.format("players.%s", areaOwner), null);
+						} else {
+							getConfig().set(String.format("players.%s.areas", areaOwner), playerAreas);
+						}
 					}
 					
 					saveConfig();
 					
-					sender.sendMessage(ChatColor.GREEN + "Area teleport removed");
+					player.sendMessage(ChatColor.GREEN + "Area teleport removed");
 					return true;
 				} else {
-					sender.sendMessage(ChatColor.RED + "This area teleport does not belong to you");
+					player.sendMessage(ChatColor.RED + "This area teleport does not belong to you");
 					return true;
 				}
 			} else if (command.equals("set")) {
-				if (!perms.has(sender, "areatp.set")) {
-					sender.sendMessage(ChatColor.RED + "Sorry, you don't have permission to set area teleports");
+				if (sender instanceof ConsoleCommandSender) {
+					sender.sendMessage(ChatColor.RED + "This command is not available through the console");
+					return true;
+				}
+				
+				Player player = (Player) sender;
+				
+				if (!perms.has(player, "areatp.set")) {
+					player.sendMessage(ChatColor.RED + "Sorry, you don't have permission to set area teleports");
 					return true;
 				}
 				if (args.length < 2) {
-					sender.sendMessage(ChatColor.RED + "Please specify a name for this area teleport");
+					player.sendMessage(ChatColor.RED + "Please specify a name for this area teleport");
 					return true;
 				}
 				
@@ -244,31 +399,36 @@ public final class AreaTP extends JavaPlugin {
 				// Does this already exist?
 				Object areaOwner = getConfig().get(String.format("areas.%s.owner", areaName), null);
 				
-				if (areaOwner != null && !areaOwner.equals(sender.getName())) {
-					sender.sendMessage(ChatColor.RED + "An area teleport with this name already exists");
+				if (areaOwner != null && !areaOwner.equals(player.getUniqueId().toString())) {
+					player.sendMessage(ChatColor.RED + "An area teleport with this name already exists");
 					return true;
 				}
 				
-				List<String> playerAreas = getConfig().getStringList(String.format("players.%s.areas", sender.getName()));
+				List<String> playerAreas = getConfig().getStringList(String.format("players.%s.areas", player.getUniqueId().toString()));
 				
 				// Check if this is new or already exists for this user
-				if (areaOwner == null && !perms.has(sender, "areatp.unlimited")) {
+				if (areaOwner == null && !perms.has(player, "areatp.unlimited")) {
 					// New, so we check their limit
 					Integer usedAreas = playerAreas.size();
-					Integer totalAreas = getConfig().getInt(String.format("groups.%s.limit", perms.getPrimaryGroup((String) null, sender.getName())), 0);
+					Integer totalAreas = getConfig().getInt(String.format("groups.%s.limit", perms.getPrimaryGroup((String) null, player)), 0);
 					
 					if (usedAreas >= totalAreas) {
-						sender.sendMessage(ChatColor.YELLOW + "You have used your maximum number of area teleports");
+						player.sendMessage(ChatColor.YELLOW + "You have used your maximum number of area teleports");
 						return true;
 					}
 				}
 				
 				// Get player position
-				Player player = (Player) sender;
 				Location playerLocation = player.getLocation();
 				
+				// Check if the area is dangerous
+				if (isDangerous(playerLocation)) {
+					player.sendMessage(ChatColor.YELLOW + "This area is unsafe - please choose another or remove dangerous blocks");
+					return true;
+				}
+				
 				// Set this area
-				getConfig().set(String.format("areas.%s.owner", areaName), sender.getName());
+				getConfig().set(String.format("areas.%s.owner", areaName), player.getUniqueId().toString());
 				getConfig().set(String.format("areas.%s.world", areaName), playerLocation.getWorld().getName());
 				getConfig().set(String.format("areas.%s.x", areaName), playerLocation.getX());
 				getConfig().set(String.format("areas.%s.y", areaName), playerLocation.getY());
@@ -276,15 +436,15 @@ public final class AreaTP extends JavaPlugin {
 				getConfig().set(String.format("areas.%s.pitch", areaName), playerLocation.getPitch());
 				getConfig().set(String.format("areas.%s.yaw", areaName), playerLocation.getYaw());
 				
-				// Add this area to the player's list				
+				// Add this area to the player's list
 				if (!playerAreas.contains(areaName)) {
 					playerAreas.add(areaName);
-					getConfig().set(String.format("players.%s.areas", sender.getName()), playerAreas);
+					getConfig().set(String.format("players.%s.areas", player.getUniqueId().toString()), playerAreas);
 				}
 				
 				saveConfig();
 				
-				sender.sendMessage(ChatColor.GREEN + "Area teleport set to your current position");
+				player.sendMessage(ChatColor.GREEN + "Area teleport set to your current position");
 				return true;
 			} else if (command.equals("help")) {
 				sender.sendMessage(ChatColor.GOLD + "Area Teleport Commands");
@@ -304,7 +464,7 @@ public final class AreaTP extends JavaPlugin {
 					
 					for (String area : areaList) {
 						String areaOwner = getConfig().getString(String.format("areas.%s.owner", area));
-						map.put(i, ChatColor.GOLD + area + ChatColor.RESET + " (owner: " + areaOwner + ")");
+						map.put(i, ChatColor.GOLD + area + ChatColor.RESET + " (owner: " + getServer().getOfflinePlayer(UUID.fromString(areaOwner)).getName() + ")");
 						i++;
 					}
 					
@@ -325,32 +485,37 @@ public final class AreaTP extends JavaPlugin {
 					sender.sendMessage(ChatColor.YELLOW + "Nothing to list");
 				}
 			} else {
+				if (sender instanceof ConsoleCommandSender) {
+					sender.sendMessage(ChatColor.RED + "This command is not available through the console");
+					return true;
+				}
+				
+				final Player player = (Player) sender;
+				
 				// Teleport to an area
 				if (args.length != 1) {
-					sender.sendMessage(ChatColor.RED + "Please specify an area TP to teleport to");
+					player.sendMessage(ChatColor.RED + "Please specify an area TP to teleport to");
 				} else {
 					final String areaName = args[0].toLowerCase();
 					
 					// Does this exist?
 					if (getConfig().get(String.format("areas.%s.owner", areaName), null) == null) {
-						sender.sendMessage(ChatColor.RED + "The area teleport you specified does not exist");
+						player.sendMessage(ChatColor.RED + "The area teleport you specified does not exist");
 						return true;
 					}
 					
-					final Player player = (Player) sender;
-					
-					if (getConfig().getInt("tp_delay", 0) > 0 && !perms.has((String) null, player.getName(), "areatp.bypass")) {
+					if (getConfig().getInt("tp_delay", 0) > 0 && !perms.playerHas((String) null, player, "areatp.bypass")) {
 						int tpDelay = getConfig().getInt("tp_delay");
 						
 						player.sendMessage(ChatColor.GOLD + String.format("Teleporting you in %d seconds...", tpDelay));
 						
 						getServer().getScheduler().scheduleSyncDelayedTask(this, new Runnable() {
 							public void run() {
-								teleportPlayer(player.getName(), areaName);
+								teleportPlayer(player, areaName);
 							}
 						}, tpDelay * 20L);
 					} else {
-						teleportPlayer(player.getName(), areaName);
+						teleportPlayer(player, areaName);
 					}
 				}
 			}
